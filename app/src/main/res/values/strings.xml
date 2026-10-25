@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Profit</string>
+    <string name="profit_entry_title"> Бүртгэл нэмэх </string>>
+    <string name="settings_title"> Тохиргоо </string>>
+</resources>
