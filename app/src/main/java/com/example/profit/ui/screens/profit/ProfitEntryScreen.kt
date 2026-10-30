@@ -114,11 +114,11 @@ fun ProfitEntryBody(
     }
 
     val fieldShape = RoundedCornerShape(16.dp)
-    val fieldColors = OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = accent,
-        focusedLabelColor = accent,
-        cursorColor = accent
-    )
+        val fieldColors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = accent,
+            focusedLabelColor = accent,
+            cursorColor = accent
+        )
 
     Column(
         modifier = modifier

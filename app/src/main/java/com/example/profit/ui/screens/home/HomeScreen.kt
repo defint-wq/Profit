@@ -1,6 +1,9 @@
 package com.example.profit.ui.screens.home
 
+import android.content.res.Configuration
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,12 +20,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.profit.R
 import com.example.profit.data.ProfitEntity
+import com.example.profit.repository.DisplayMode
 import com.example.profit.ui.navigation.NavigationDestination
 import com.example.profit.ui.screens.ProfitTopBar
 import com.example.profit.viewModel.AppViewModelProvider
@@ -32,7 +37,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import com.example.profit.repository.DisplayMode
 
 object HomeDestination : NavigationDestination {
     override val route = "home"
@@ -41,6 +45,7 @@ object HomeDestination : NavigationDestination {
 
 private val Green = Color(0xFF2E9E4F)
 private val Red = Color(0xFFE53935)
+private const val MASK = "*****"
 
 private data class MonthRange(val start: Long, val end: Long, val label: String)
 
@@ -72,6 +77,7 @@ private fun categoryIcon(category: String): Pair<ImageVector, Color> = when (cat
 @Composable
 fun HomeScreen(
     navigateToProfitEntry: (String) -> Unit,
+    navigateToEdit: (Int) -> Unit,
     navigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ProfitViewModel = viewModel(factory = AppViewModelProvider.Factory),
@@ -79,19 +85,41 @@ fun HomeScreen(
 ) {
     val allProfits by viewModel.profits.collectAsState(initial = emptyList())
     val mode by settingsViewModel.displayMode.collectAsState()
+    val isLandscape =
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     var monthOffset by remember { mutableIntStateOf(0) }
     var itemToDelete by remember { mutableStateOf<ProfitEntity?>(null) }
+    var summaryRevealed by remember { mutableStateOf(false) }
+    val revealedIds = remember { mutableStateListOf<Long>() }
     val range = remember(monthOffset) { monthRange(monthOffset) }
 
     val monthProfits = allProfits.filter { it.date >= range.start && it.date < range.end }
-
     val income = monthProfits.filter { it.type == "income" }.sumOf { it.amount.toDouble() }
     val expense = monthProfits.filter { it.type == "expense" }.sumOf { it.amount.toDouble() }
 
     val profits = monthProfits
         .filter { mode == DisplayMode.BOTH || it.type == mode }
         .sortedByDescending { it.date }
+
+    val summary: @Composable () -> Unit = {
+        SummaryRow(
+            mode = mode,
+            income = income,
+            expense = expense,
+            revealed = summaryRevealed,
+            onToggle = { summaryRevealed = !summaryRevealed }
+        )
+    }
+    val list: @Composable (Modifier) -> Unit = { listModifier ->
+        EntryList(
+            profits = profits,
+            revealedIds = revealedIds,
+            onEdit = { navigateToEdit(it.id) },
+            onDelete = { itemToDelete = it },
+            modifier = listModifier
+        )
+    }
 
     Scaffold(
         modifier = modifier,
@@ -107,81 +135,74 @@ fun HomeScreen(
             )
         },
         bottomBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Button(
-                    onClick = { navigateToProfitEntry("income") },
-                    colors = ButtonDefaults.buttonColors(containerColor = Green),
-                    modifier = Modifier.weight(1f)
+            if (!isLandscape) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Орлого нэмэх")
-                }
-                Button(
-                    onClick = { navigateToProfitEntry("expense") },
-                    colors = ButtonDefaults.buttonColors(containerColor = Red),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Зарлага нэмэх")
+                    AddButton("Орлого нэмэх", Green, Modifier.weight(1f)) {
+                        navigateToProfitEntry("income")
+                    }
+                    AddButton("Зарлага нэмэх", Red, Modifier.weight(1f)) {
+                        navigateToProfitEntry("expense")
+                    }
                 }
             }
         }
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+        if (!isLandscape) {
+            Column(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                IconButton(onClick = { monthOffset-- }) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Өмнөх сар")
-                }
-                Text(range.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                IconButton(onClick = { monthOffset++ }) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Дараах сар")
-                }
+                MonthSwitcherHorizontal(
+                    label = range.label,
+                    onPrev = { monthOffset-- },
+                    onNext = { monthOffset++ }
+                )
+                summary()
+                list(Modifier.weight(1f))
             }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (mode != DisplayMode.EXPENSE) {
-                    SummaryBox(
-                        title = "Орлого",
-                        amount = income,
-                        color = Green,
-                        icon = Icons.Default.ArrowUpward,
-                        modifier = Modifier.weight(1f)
-                    )
+        } else {
+            Row(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                MonthSwitcherVertical(
+                    label = range.label,
+                    onUp = { monthOffset++ },
+                    onDown = { monthOffset-- },
+                    modifier = Modifier.fillMaxHeight()
+                )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    summary()
+                    list(Modifier.weight(1f))
                 }
-                if (mode != DisplayMode.INCOME) {
-                    SummaryBox(
-                        title = "Зарлага",
-                        amount = expense,
-                        color = Red,
-                        icon = Icons.Default.ArrowDownward,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            if (profits.isEmpty()) {
-                Text("Энэ сард бүртгэл алга байна.")
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(profits, key = { it.id }) { item ->
-                        ProfitRow(item = item, onDelete = { itemToDelete = item })
+                Column(
+                    modifier = Modifier
+                        .width(180.dp)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    AddButton("Орлого нэмэх", Green, Modifier.fillMaxWidth()) {
+                        navigateToProfitEntry("income")
+                    }
+                    AddButton("Зарлага нэмэх", Red, Modifier.fillMaxWidth()) {
+                        navigateToProfitEntry("expense")
                     }
                 }
             }
@@ -197,31 +218,130 @@ fun HomeScreen(
                 TextButton(onClick = {
                     viewModel.deleteProfit(item)
                     itemToDelete = null
-                }) {
-                    Text("Устгах", color = Red)
-                }
+                }) { Text("Устгах", color = Red) }
             },
             dismissButton = {
-                TextButton(onClick = { itemToDelete = null }) {
-                    Text("Болих")
-                }
+                TextButton(onClick = { itemToDelete = null }) { Text("Болих") }
             }
         )
     }
 }
 
 @Composable
+private fun AddButton(text: String, color: Color, modifier: Modifier, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(containerColor = color),
+        modifier = modifier
+    ) {
+        Icon(Icons.Default.Add, contentDescription = null)
+        Spacer(Modifier.width(4.dp))
+        Text(text)
+    }
+}
+
+@Composable
+private fun MonthSwitcherHorizontal(label: String, onPrev: () -> Unit, onNext: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        IconButton(onClick = onPrev) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Өмнөх сар")
+        }
+        Text(label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        IconButton(onClick = onNext) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Дараах сар")
+        }
+    }
+}
+
+@Composable
+private fun MonthSwitcherVertical(
+    label: String,
+    onUp: () -> Unit,
+    onDown: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.width(88.dp),
+        verticalArrangement = Arrangement.SpaceEvenly,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        IconButton(onClick = onUp) {
+            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Дараах сар")
+        }
+        Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        IconButton(onClick = onDown) {
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Өмнөх сар")
+        }
+    }
+}
+
+@Composable
+private fun SummaryRow(
+    mode: String,
+    income: Double,
+    expense: Double,
+    revealed: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (mode != DisplayMode.EXPENSE) {
+            SummaryBox("Орлого", income, Green, Icons.Default.ArrowUpward, revealed, onToggle, Modifier.weight(1f))
+        }
+        if (mode != DisplayMode.INCOME) {
+            SummaryBox("Зарлага", expense, Red, Icons.Default.ArrowDownward, revealed, onToggle, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun EntryList(
+    profits: List<ProfitEntity>,
+    revealedIds: MutableList<Long>,
+    onEdit: (ProfitEntity) -> Unit,
+    onDelete: (ProfitEntity) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (profits.isEmpty()) {
+        Text("Энэ сард бүртгэл алга байна.", modifier = modifier)
+    } else {
+        LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(profits, key = { it.id }) { item ->
+                val id = item.id.toLong()
+                ProfitRow(
+                    item = item,
+                    revealed = id in revealedIds,
+                    onToggle = { if (id in revealedIds) revealedIds.remove(id) else revealedIds.add(id) },
+                    onLongPress = { onEdit(item) },
+                    onDelete = { onDelete(item) }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun SummaryBox(
     title: String,
     amount: Double,
     color: Color,
     icon: ImageVector,
+    revealed: Boolean,
+    onToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(color.copy(alpha = 0.12f))
+            .combinedClickable(onClick = onToggle)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -234,19 +354,35 @@ private fun SummaryBox(
         }
         Column {
             Text(title, style = MaterialTheme.typography.labelLarge)
-            Text("${"%,.0f".format(amount)}₮", fontWeight = FontWeight.Bold, color = color)
+            Text(
+                if (revealed) "${"%,.0f".format(amount)}₮" else MASK,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ProfitRow(item: ProfitEntity, onDelete: () -> Unit) {
+private fun ProfitRow(
+    item: ProfitEntity,
+    revealed: Boolean,
+    onToggle: () -> Unit,
+    onLongPress: () -> Unit,
+    onDelete: () -> Unit
+) {
     val isIncome = item.type == "income"
     val (icon, tint) = categoryIcon(item.category)
     val dateText = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(item.date))
+    val amountText = if (revealed) "%,.0f₮".format(item.amount) else MASK
 
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(onClick = onToggle, onLongClick = onLongPress)
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -263,7 +399,7 @@ private fun ProfitRow(item: ProfitEntity, onDelete: () -> Unit) {
         )
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                (if (isIncome) "+ " else "- ") + "%,.0f₮".format(item.amount),
+                (if (isIncome) "+ " else "- ") + amountText,
                 color = if (isIncome) Green else Red,
                 fontWeight = FontWeight.Bold
             )
